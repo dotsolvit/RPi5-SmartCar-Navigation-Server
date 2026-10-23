@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Навігаційна панель 8х8м</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 20px; }
+        .control-panel { margin: 15px; display: flex; justify-content: center; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .map-panel { margin-top: 12px; display: flex; justify-content: center; gap: 10px; }
+        button { font-size: 16px; padding: 10px 20px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; }
+        .btn-start { background: #28a745; color: white; }
+        .btn-stop { background: #dc3545; color: white; }
+        .btn-calibrate { background: #fd7e14; color: white; }
+        .btn-mode { background: #6c757d; color: white; min-width: 140px; }
+        .btn-map { background: #ff9900; color: #111; font-size: 14px; padding: 8px 15px; }
+        .btn-clear { background: #6f42c1; color: white; font-size: 14px; padding: 8px 15px; }
+        .active-auto { background: #007bff !important; box-shadow: 0 0 10px #007bff; }
+        button:hover { opacity: 0.9; }
+        .status-box { font-size: 14px; color: #bbb; background: #333; padding: 8px; border-radius: 5px; text-align: left; min-width: 340px;}
+        .highlight { color: #00a2ff; font-weight: bold; }
+        canvas { border: 3px solid #444; background: #1e1e1e; margin-top: 10px; cursor: crosshair; }
+    </style>
+</head>
+<body>
+    <h1>Smart Car Navigation (Compass Coordinates)</h1>
+    
+    <div class="control-panel">
+        <button class="btn-start" onclick="sendControl('start')">СТАРТ</button>
+        <button class="btn-stop" onclick="sendControl('stop')">СТОП</button>
+        <button class="btn-calibrate" onclick="sendControl('calibrate')">🔧 Калібрувати</button>
+        <button id="modeBtn" class="btn-mode" onclick="toggleMode()">Режим: РУЧНИЙ</button>
+        
+        <div class="status-box">
+            Машинка: X=<span id="posX">0.0</span>м, Y=<span id="posY">0.0</span>м | Курс: <span id="heading">0</span>°<br>
+            Статус: <span id="robotStatus" class="highlight">Зупинено</span> | <span id="routeStatus" style="color:#00a2ff;">Очікування цілі</span>
+        </div>
+    </div>
+
+    <canvas id="mapCanvas" width="800" height="800"></canvas>
+
+    <div class="map-panel">
+        <button class="btn-map" onclick="sendControl('save_map')">💾 Зберегти карту</button>
+        <button class="btn-map" onclick="sendControl('load_map')">📂 Завантажити карту</button>
+        <button class="btn-clear" onclick="sendControl('clear_map')">🧹 Очистити карту</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mapCanvas');
+        const ctx = canvas.getContext('2d');
+        const CELL_SIZE = 10; 
+        const MAP_CELLS = 80;
+        
+        let robot = {x: 4.0, y: 4.0, theta_deg: 0.0};
+        let path = [];
+        let currentMode = "manual";
+
+        // Мапа перекладу статусів на українську для користувача
+        const statusTranslations = {
+            "stopped": "Зупинено",
+            "moving": "Рухається",
+            "scanning": "Сканування перешкоди 180°",
+            "calibrating": "Калібрування компасу...",
+            "arrived": "Ціль досягнута"
+        };
+
+        const eventSource = new EventSource('/stream');
+
+        eventSource.onmessage = function(event) {
+            const msg = JSON.parse(event.data);
+            robot = msg.robot;
+            path = msg.path;
+            currentMode = msg.nav_mode;
+            
+            // Вивід точних метричних координат у панель
+            document.getElementById('posX').innerText = robot.x.toFixed(2);
+            document.getElementById('posY').innerText = robot.y.toFixed(2);
+            document.getElementById('heading').innerText = Math.round(robot.theta_deg);
+            
+            const rawStatus = msg.robot_status;
+            document.getElementById('robotStatus').innerText = statusTranslations[rawStatus] || rawStatus;
+            document.getElementById('routeStatus').innerText = msg.route_status;
+            
+            const modeBtn = document.getElementById('modeBtn');
+            if (currentMode === "auto") {
+                modeBtn.innerText = "Режим: АВТОМАТ";
+                modeBtn.classList.add('active-auto');
+            } else {
+                modeBtn.innerText = "Режим: РУЧНИЙ";
+                modeBtn.classList.remove('active-auto');
+            }
+
+            draw(msg.raw_map, msg.safety_radius);
+        };
+
+        // Функція перетворення координат: інверсія Y, щоб (0,0) був знизу ліворуч
+        function toCanvasCoords(x_cell, y_cell) {
+            return {
+                x: x_cell * CELL_SIZE,
+                y: (MAP_CELLS - 1 - y_cell) * CELL_SIZE
+            };
+        }
+
+        function draw(rawMap, safetyRadius) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 1. Рендеринг стін та зон безпеки
+            if (rawMap) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+                for (let y = 0; y < MAP_CELLS; y++) {
+                    for (let x = 0; x < MAP_CELLS; x++) {
+                        if (rawMap[y][x] === 1) {
+                            const r = safetyRadius;
+                            const c = toCanvasCoords(x - r, y + r); // Корекція кута під інверсію Y
+                            ctx.fillStyle = "rgba(100, 100, 100, 0.25)";
+                            ctx.fillRect(c.x, c.y, (r*2+1)*CELL_SIZE, (r*2+1)*CELL_SIZE);
+                        }
+                    }
+                }
+                for (let y = 0; y < MAP_CELLS; y++) {
+                    for (let x = 0; x < MAP_CELLS; x++) {
+                        if (rawMap[y][x] === 1) {
+                            const c = toCanvasCoords(x, y);
+                            ctx.fillStyle = "#111111";
+                            ctx.fillRect(c.x, c.y, CELL_SIZE, CELL_SIZE);
+                            ctx.strokeStyle = "#ff9900"; ctx.lineWidth = 0.5;
+                            ctx.strokeRect(c.x, c.y, CELL_SIZE, CELL_SIZE);
+                        }
+                    }
+                }
+            }
+            
+            // 2. Координатна сітка
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.04)"; ctx.lineWidth = 0.5;
+            for (let i = 0; i <= canvas.width; i += CELL_SIZE) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+            
+            // 3. Малювання синього шляху А* (координати приходять у метрах!)
+            if (path && path.length > 0) {
+                ctx.beginPath(); ctx.strokeStyle = "#00a2ff"; ctx.lineWidth = 3; ctx.lineJoin = "round";
+                
+                // Переводимо першу точку з метрів в індекси клітинок, а потім в координати екрана
+                let first_cx = Math.floor(path[0].x * 10);
+                let first_cy = Math.floor(path[0].y * 10);
+                let first_pos = toCanvasCoords(first_cx, first_cy);
+                ctx.moveTo(first_pos.x + 5, first_pos.y + 5);
+                
+                for (let i = 1; i < path.length; i++) {
+                    let cx = Math.floor(path[i].x * 10);
+                    let cy = Math.floor(path[i].y * 10);
+                    let pos = toCanvasCoords(cx, cy);
+                    ctx.lineTo(pos.x + 5, pos.y + 5);
+                }
+                ctx.stroke();
+            }
+            
+            // 4. Малювання червоного робота
+            const robot_cx = Math.floor(robot.x * 10);
+            const robot_cy = Math.floor(robot.y * 10);
+            const r_pos = toCanvasCoords(robot_cx, robot_cy);
+            const rx = r_pos.x + 5;
+            const ry = r_pos.y + 5;
+            
+            ctx.beginPath(); ctx.arc(rx, ry, 11, 0, 2 * Math.PI); ctx.fillStyle = "#ff3333"; ctx.fill();
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+            
+            // Навігаційний вектор курсу: 0° - вгору (-Y у Canvas), кут за годинниковою стрілкою
+            // Переходимо до радіан: віднімаємо 90° для компенсації графічного зсуву математичного кола
+            const rad = (robot.theta_deg - 90.0) * Math.PI / 180.0;
+            ctx.beginPath(); ctx.moveTo(rx, ry);
+            ctx.lineTo(rx + 18 * Math.cos(rad), ry + 18 * Math.sin(rad));
+            ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3; ctx.stroke();
+        }
+
+        function sendControl(action) {
+            fetch('/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            });
+        }
+
+        function toggleMode() {
+            sendControl(currentMode === "manual" ? "auto" : "manual");
+        }
+
+        canvas.addEventListener('click', function(event) {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            // Зворотний перерахунок пікселів кліку Canvas в індекси сітки з урахуванням інверсії Y
+            const cellX = Math.floor(mouseX / CELL_SIZE);
+            const cellY = MAP_CELLS - 1 - Math.floor(mouseY / CELL_SIZE);
+
+            fetch('/set_goal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x: cellX, y: cellY })
+            });
+        });
+    </script>

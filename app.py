@@ -14,7 +14,8 @@ app = Flask(__name__)
 MAP_SIZE = 80  
 raw_map = [[0 for _ in range(MAP_SIZE)] for _ in range(MAP_SIZE)]
 
-robot_pose = {"x": 4.0, "y": 4.0, "theta_deg": 0.0} 
+# Позиція в метрах, курс у градусах, заряд у %
+robot_pose = {"x": 4.0, "y": 4.0, "theta_deg": 0.0, "battery_pct": 100} 
 current_path_m = [] # Дрібний шлях (для UI)
 route_status = "Очікування цілі"
 robot_status = "stopped"  
@@ -113,9 +114,12 @@ def on_message(client, userdata, msg):
             robot_pose["x"] = float(payload["x"])
             robot_pose["y"] = float(payload["y"])
             robot_pose["theta_deg"] = float(payload["theta_deg"])
+            # Зчитуємо заряд акумулятора, якщо його немає в пакеті — ставимо 100 за замовчуванням
+            robot_pose["battery_pct"] = int(payload.get("battery_pct", 100))
             if "status" in payload:
                 robot_status = payload["status"]
             change_event.set()
+
             
         elif msg.topic == "robot/obstacle_scan":
             print("Сервер: Отримано повне сканування перешкод 180° в мм.")

@@ -31,7 +31,7 @@
         <button id="modeBtn" class="btn-mode" onclick="toggleMode()">Режим: РУЧНИЙ</button>
         
         <div class="status-box">
-            Машинка: X=<span id="posX">0.0</span>м, Y=<span id="posY">0.0</span>м | Курс: <span id="heading">0</span>°<br>
+            Машинка: X=<span id="posX">0.0</span>м, Y=<span id="posY">0.0</span>м | Курс: <span id="heading">0</span>° | 🔋 <span id="battery" class="highlight">100</span>%<br>
             Статус: <span id="robotStatus" class="highlight">Зупинено</span> | <span id="routeStatus" style="color:#00a2ff;">Очікування цілі</span>
         </div>
     </div>
@@ -75,6 +75,17 @@
             document.getElementById('posX').innerText = robot.x.toFixed(2);
             document.getElementById('posY').innerText = robot.y.toFixed(2);
             document.getElementById('heading').innerText = Math.round(robot.theta_deg);
+            
+            // Вивід та колір заряду акумулятора
+            const batEl = document.getElementById('battery');
+            batEl.innerText = robot.battery_pct;
+            if (robot.battery_pct <= 20) {
+                batEl.style.color = '#ff3333'; // Критичний розряд
+            } else if (robot.battery_pct <= 50) {
+                batEl.style.color = '#fd7e14'; // Половина заряду
+            } else {
+                batEl.style.color = '#28a745'; // Хороший заряд (зелений)
+            }
             
             const rawStatus = msg.robot_status;
             document.getElementById('robotStatus').innerText = statusTranslations[rawStatus] || rawStatus;

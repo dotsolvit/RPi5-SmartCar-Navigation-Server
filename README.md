@@ -19,6 +19,7 @@
   "x": 4.35,
   "y": 2.10,
   "theta_deg": 125.5,
+  "battery_pct": 87,
   "status": "moving"
 }
 ```

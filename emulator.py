@@ -22,6 +22,7 @@ robot_y = 4.0
 robot_theta_deg = 0.0
 is_running = False   
 target_path_m = []     # Укрупнений векторний маршрут
+robot_battery = 81  # Задаємо якийсь стартовий рівень заряду (81%)
 last_status = "stopped"
 telemetry_dirty = True # Прапорець для відправки фінального пакета
 
@@ -157,7 +158,7 @@ def execute_180_degree_scan(client):
     print("Емулятор: Результати сканування перешкоди 180° передано в MQTT.")
 
 def run_emulator():
-    global robot_x, robot_y, robot_theta_deg, is_running, target_path_m, last_status, telemetry_dirty
+    global robot_x, robot_y, robot_theta_deg, is_running, target_path_m, robot_battery, last_status, telemetry_dirty
     
     load_secret_obstacles()
     client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -253,6 +254,16 @@ def run_emulator():
 
                 if is_running: 
                     last_status = "moving"
+                    
+            # Логіка плавного мікро-розряду тільки під час руху машинки
+            if is_running and has_moved:
+                # Зменшуємо заряд дуже повільно (приблизно на 1% за 300 кроків руху)
+                static_bat_cnt = getattr(run_emulator, 'bat_cnt', 0) + 1
+                run_emulator.bat_cnt = static_bat_cnt
+                if static_bat_cnt >= 300:
+                    run_emulator.bat_cnt = 0
+                    if robot_battery > 0:
+                        robot_battery -= 1
 
             # Оптимізація трафіку
             if has_moved or telemetry_dirty:
@@ -260,6 +271,7 @@ def run_emulator():
                     "x": round(robot_x, 2), 
                     "y": round(robot_y, 2),
                     "theta_deg": round(robot_theta_deg, 1), 
+                    "battery_pct": robot_battery,  # Додаємо рівень заряду в MQTT пакет
                     "status": last_status
                 }
                 client.publish("robot/telemetry", json.dumps(telemetry))

@@ -26,6 +26,10 @@ robot_battery = 81  # Задаємо якийсь стартовий рівен�
 last_status = "stopped"
 telemetry_dirty = True # Прапорець для відправки фінального пакета
 
+# Прості глобальні лічильники кроків таймера
+cal_counter = 0
+battery_counter = 0
+
 # Карта прихованих перешкод для HIL-тестування
 secret_obstacles = set()
 SECRET_MAP_PATH = "secret_map.txt"
@@ -85,11 +89,11 @@ def on_message(client, userdata, msg):
             points = payload.get("points", [])
             target_path_m = [(pt["x"], pt["y"]) for pt in points]
             
-            # Безпечне читання першої точки через вбудований метод Python
+            # Читання першої точки
             if len(target_path_m) > 0:
-                first_pt = target_path_m.__getitem__(0)
-                dx = first_pt.__getitem__(0) - robot_x
-                dy = first_pt.__getitem__(1) - robot_y
+                first_pt = target_path_m[0]  # Беремо перший кортеж (x, y) зі списку
+                dx = first_pt[0] - robot_x   # first_pt[0] — це координата X
+                dy = first_pt[1] - robot_y   # first_pt[1] — це координата Y
                 if math.sqrt(dx**2 + dy**2) < 0.08:
                     target_path_m.pop(0)
                     
@@ -180,22 +184,24 @@ def run_emulator():
             
             # --- РЕЖИМ 1: Калібрування компасу на місці ---
             if last_status == "calibrating":
+                global cal_counter
                 robot_theta_deg = (robot_theta_deg + 15.0) % 360.0
                 has_moved = True
                 telemetry_dirty = True
-                static_counter = getattr(run_emulator, 'cal_cnt', 0) + 1
-                run_emulator.cal_cnt = static_counter
-                if static_counter >= 20:
-                    run_emulator.cal_cnt = 0
+                
+                # Класичний інтуїтивний лічильник
+                cal_counter += 1
+                if cal_counter >= 20:
+                    cal_counter = 0
                     last_status = "stopped"
                     print("Емулятор: Калібрування магнітометра завершено.")
             
             # --- РЕЖИМ 2: Рух за вектором шляху ---
             elif is_running and len(target_path_m) > 0:
-                # Безпечне читання першого елемента списку за допомогою вбудованого методу Python
-                current_node = target_path_m.__getitem__(0)
-                target_x_m = current_node.__getitem__(0)
-                target_y_m = current_node.__getitem__(1)
+                # Читання першого елемента списку 
+                current_node = target_path_m[0]
+                target_x_m = current_node[0]
+                target_y_m = current_node[1]
                 
                 dx = target_x_m - robot_x
                 dy = target_y_m - robot_y
@@ -258,10 +264,10 @@ def run_emulator():
             # Логіка плавного мікро-розряду тільки під час руху машинки
             if is_running and has_moved:
                 # Зменшуємо заряд дуже повільно (приблизно на 1% за 300 кроків руху)
-                static_bat_cnt = getattr(run_emulator, 'bat_cnt', 0) + 1
-                run_emulator.bat_cnt = static_bat_cnt
-                if static_bat_cnt >= 300:
-                    run_emulator.bat_cnt = 0
+                global battery_counter
+                battery_counter += 1
+                if battery_counter >= 300:
+                    battery_counter = 0
                     if robot_battery > 0:
                         robot_battery -= 1
 

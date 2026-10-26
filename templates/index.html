@@ -63,8 +63,10 @@
             "arrived": "Ціль досягнута"
         };
 
+        //Встановлення зв'язку (відправляє запит на Python-сервер за адресою /stream)
         const eventSource = new EventSource('/stream');
 
+        //Прийом та розпакування повідомлень
         eventSource.onmessage = function(event) {
             const msg = JSON.parse(event.data);
             robot = msg.robot;
